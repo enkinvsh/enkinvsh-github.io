@@ -7,6 +7,18 @@
     
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Инициализация Telegram WebApp в самом начале для корректного expand()
+        const tg = window.Telegram.WebApp;
+        tg.ready();
+        tg.expand();
+        try {
+            if (tg.requestFullscreen) {
+                tg.requestFullscreen();
+            }
+        } catch (e) { console.log('Fullscreen not supported'); }
+        tg.enableClosingConfirmation();
+    </script>
     
     <!-- Manrope Font -->
     <link href="https://fonts.googleapis.com" rel="preconnect">
@@ -226,9 +238,7 @@
     </div>
 
     <script>
-        const tg = window.Telegram.WebApp;
-        tg.ready(); tg.expand(); tg.enableClosingConfirmation();
-
+        // Основной объект tg уже инициализирован в head, здесь только доп. настройки если нужно
         const PROXY_URL = 'https://focus.enkinvsh.workers.dev';
 
         function haptic(type) {
