@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport">
-    <title>Focus App - Localized</title>
+    <title>Focus App - Pro Edition</title>
     
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -108,8 +108,9 @@
                 </h1>
             </div>
 
-            <div class="px-6 flex justify-between items-center w-full mb-4 z-30">
-                <!-- SETTINGS BUTTON (Replaced Theme Button) -->
+            <!-- ALIGNMENT FIX: Changed px-6 to px-4 to match grid -->
+            <div class="px-4 flex justify-between items-center w-full mb-4 z-30">
+                <!-- SETTINGS BUTTON -->
                 <button onclick="toggleSettingsModal(); haptic('light')" class="flex items-center gap-2 glass-panel px-4 py-2 rounded-full hover:bg-white/10 transition-colors active:scale-95 group">
                     <span class="material-symbols-outlined text-[18px] text-gray-300 group-hover:text-white">settings</span>
                     <span class="text-[10px] font-bold uppercase tracking-wider text-gray-300 group-hover:text-white" id="lbl-settings">SETTINGS</span>
@@ -121,7 +122,8 @@
                 </button>
             </div>
 
-            <nav class="flex p-1 bg-brand-gray/50 rounded-2xl relative mx-6 border border-white/5 shadow-inner">
+            <!-- ALIGNMENT FIX: Changed mx-6 to mx-4 -->
+            <nav class="flex p-1 bg-brand-gray/50 rounded-2xl relative mx-4 border border-white/5 shadow-inner">
                 <div class="absolute top-1 bottom-1 left-1 w-[32%] bg-brand-green rounded-xl transition-all duration-300 ease-out z-0" id="tab-indicator" style="transform: translateX(0%);"></div>
                 <button class="flex-1 relative z-10 py-2.5 text-[11px] font-extrabold text-center transition-colors duration-300 text-brand-black" id="btn-Task" onclick="switchTab('Task')">TASK</button>
                 <button class="flex-1 relative z-10 py-2.5 text-[11px] font-extrabold text-center transition-colors duration-300 text-gray-400" id="btn-Long" onclick="switchTab('Long')">LONG</button>
@@ -157,6 +159,7 @@
 
     <!-- SETTINGS MODAL -->
     <div class="fixed inset-0 z-[60] flex items-center justify-center pointer-events-none opacity-0 hidden transition-opacity duration-200" id="settings-modal">
+        <!-- BACKDROP CLICK CLOSES MODAL -->
         <div class="absolute inset-0 bg-black/90 backdrop-blur-md" onclick="toggleSettingsModal()"></div>
         <div class="bg-brand-gray border border-brand-green/30 w-[90%] max-w-sm rounded-3xl p-6 relative pointer-events-auto transform scale-95 transition-transform duration-200">
             <div class="flex justify-between items-center mb-6">
@@ -189,6 +192,7 @@
 
     <!-- API MODAL -->
     <div class="fixed inset-0 z-[60] flex items-center justify-center pointer-events-none opacity-0 hidden transition-opacity duration-200" id="api-modal">
+        <!-- BACKDROP CLICK CLOSES MODAL -->
         <div class="absolute inset-0 bg-black/90 backdrop-blur-md" onclick="toggleApiKeyModal()"></div>
         <div class="bg-brand-gray border border-brand-green/30 w-[90%] max-w-sm rounded-3xl p-6 relative pointer-events-auto transform scale-95 transition-transform duration-200">
             <h2 class="text-xl font-bold text-white mb-2">Gemini API Key</h2>
@@ -200,6 +204,7 @@
 
     <!-- ACTION SHEET -->
     <div class="fixed inset-0 z-50 flex items-end sm:items-center justify-center pointer-events-none opacity-0 transition-opacity duration-300" id="action-modal">
+        <!-- BACKDROP CLICK CLOSES MODAL -->
         <div class="absolute inset-0 bg-black/60 backdrop-blur-md" onclick="closeModal()"></div>
         <div class="bg-brand-gray border border-white/10 w-full max-w-sm rounded-t-3xl sm:rounded-3xl p-6 transform translate-y-full transition-transform duration-300 ease-out pointer-events-auto" id="action-sheet">
             <div class="w-12 h-1 bg-white/20 rounded-full mx-auto mb-6"></div>
@@ -240,7 +245,6 @@
         const AVAILABLE_MODELS = ['gemini-3-flash-preview', 'gemini-2.5-pro', 'gemini-2.5-flash'];
         const themes = ['#1e293b', '#052e16', '#042f2e', '#1e1b4b'];
         
-        // --- LOCALIZATION DICTIONARY ---
         const i18n = {
             en: {
                 task: "TASK", long: "LONG", routine: "ROUTINE", settings: "SETTINGS", key: "KEY",
@@ -264,7 +268,7 @@
 
         const state = {
             currentTab: 'Task', tasks: [], currentThemeIndex: 0, apiKey: null, isRecording: false,
-            language: 'en' // Default
+            language: 'en' 
         };
 
         // --- CORE LOGIC ---
@@ -279,7 +283,6 @@
             setAgentStatus('Thinking');
             haptic('medium');
 
-            // Force output language based on settings, regardless of input
             const targetLang = i18n[state.language].agent_prompt_lang; 
             
             const prompt = `You are 'Focus' AI. 
@@ -338,7 +341,6 @@
             document.getElementById('lbl-lower').innerText = t.lower;
             document.getElementById('lbl-delete').innerText = t.delete;
             
-            // Switch UI
             const isEn = state.language === 'en';
             document.getElementById('lang-bg').style.transform = isEn ? 'translateX(0%)' : 'translateX(100%)';
             document.getElementById('lang-en').classList.toggle('text-brand-black', isEn);
@@ -346,7 +348,7 @@
             document.getElementById('lang-ru').classList.toggle('text-brand-black', !isEn);
             document.getElementById('lang-ru').classList.toggle('text-gray-400', isEn);
 
-            renderTasks(); // Re-render cards to translate Priority labels
+            renderTasks();
         }
 
         function toggleLanguage() {
@@ -386,7 +388,6 @@
 
         function createCard(task, cls, t) {
             const d = document.createElement('div');
-            // Date Localization
             const dateStr = new Date().toLocaleDateString(state.language === 'ru' ? 'ru-RU' : 'en-US', { weekday: 'short' });
             
             d.className = `task-card bg-white text-brand-black rounded-3xl p-5 relative overflow-hidden flex flex-col justify-between ${cls}`;
@@ -402,7 +403,7 @@
             return d;
         }
 
-        // --- HANDLERS ---
+        // --- HANDLERS & SWIPE ---
         function switchTab(n) {
             state.currentTab = n;
             document.querySelectorAll('nav button').forEach(b => b.classList.replace('text-brand-black','text-gray-400'));
@@ -410,6 +411,38 @@
             const offsets = { 'Task': '0%', 'Long': '100%', 'Routine': '200%' };
             document.getElementById('tab-indicator').style.transform = `translateX(${offsets[n]})`;
             renderTasks(); haptic('selection');
+        }
+
+        // SWIPE LOGIC
+        let touchStart = { x: 0, y: 0 };
+        const appBody = document.getElementById('app-body');
+        
+        appBody.addEventListener('touchstart', e => {
+            touchStart.x = e.changedTouches[0].screenX;
+            touchStart.y = e.changedTouches[0].screenY;
+        }, {passive: true});
+
+        appBody.addEventListener('touchend', e => {
+            const endX = e.changedTouches[0].screenX;
+            const endY = e.changedTouches[0].screenY;
+            const diffX = endX - touchStart.x;
+            const diffY = endY - touchStart.y;
+            
+            // Threshold > 50px and must be horizontal (X > Y)
+            if (Math.abs(diffX) > 50 && Math.abs(diffX) > Math.abs(diffY)) {
+                if (diffX > 0) swipeRight();
+                else swipeLeft();
+            }
+        }, {passive: true});
+
+        function swipeLeft() {
+            if (state.currentTab === 'Task') switchTab('Long');
+            else if (state.currentTab === 'Long') switchTab('Routine');
+        }
+
+        function swipeRight() {
+            if (state.currentTab === 'Routine') switchTab('Long');
+            else if (state.currentTab === 'Long') switchTab('Task');
         }
 
         function openActionModal(id) {
@@ -440,7 +473,6 @@
             saveTasks(); renderTasks(); closeModal();
         }
 
-        // --- SETTINGS ---
         function toggleSettingsModal() {
             const m = document.getElementById('settings-modal');
             m.classList.toggle('hidden'); setTimeout(()=>m.classList.toggle('opacity-0'),10);
@@ -455,15 +487,10 @@
             haptic('selection');
         }
 
-        // --- VOICE ---
         const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (Rec) {
             const r = new Rec(); 
-            // Dynamic Language for Recognition?
-            // r.lang = state.language === 'ru' ? 'ru-RU' : 'en-US'; 
-            // Better to keep input language flexible or auto, but for now defaults to RU if user speaks Russian usually
             r.lang = 'ru-RU'; 
-
             r.onstart = () => { 
                 state.isRecording = true; haptic('medium');
                 document.getElementById('voice-btn').classList.replace('bg-brand-green','bg-brand-red');
@@ -489,7 +516,7 @@
                 text.innerText = t.agent_think;
             } else {
                 dot.className = "w-2 h-2 rounded-full bg-brand-green animate-pulse";
-                text.innerText = t.agent_ready; // or KEY if not ready? logic simplified here
+                text.innerText = t.agent_ready;
             }
         }
 
@@ -509,17 +536,14 @@
         }
 
         document.addEventListener('DOMContentLoaded', () => {
-            // Load saved settings
             const savedTheme = localStorage.getItem('focusThemeIndex');
             if(savedTheme) setTheme(parseInt(savedTheme));
-            
             const savedLang = localStorage.getItem('focusLang');
             if(savedLang) state.language = savedLang;
             
             applyLocalization();
             loadTasks(); 
             checkApiKey(); 
-            // Initial render called by applyLocalization
             switchTab('Task');
         });
     </script>
