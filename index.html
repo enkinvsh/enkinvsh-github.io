@@ -675,27 +675,26 @@ PRIORITY RULES:
 - 2 (SIDE): Important but not urgent, can wait
 - 3 (QUICK): Takes <5 min, easy wins, low effort
 
+TITLE RULES (CRITICAL):
+- Maximum 3-4 words per title
+- Use action verbs: "Buy milk", "Call mom", "Review code"
+- No articles, no fluff
+- Examples: "Prepare slides" NOT "Prepare the presentation slides for tomorrow"
+
 EXAMPLES:
 Input: "I need to prepare presentation for tomorrow and I'm stressed"
 Output: [
-  {"title": "Take 3 deep breaths", "priority": 3},
-  {"title": "Create presentation outline", "priority": 1},
-  {"title": "Add content to slides", "priority": 1},
-  {"title": "Review and polish", "priority": 2}
+  {"title": "Deep breaths", "priority": 3},
+  {"title": "Outline slides", "priority": 1},
+  {"title": "Add content", "priority": 1},
+  {"title": "Review & polish", "priority": 2}
 ]
 
 Input: "Buy groceries"
 Output: [{"title": "Buy groceries", "priority": 3}]
 
-Input: "Learn Python programming"
-Output: [
-  {"title": "Find Python beginner course", "priority": 2},
-  {"title": "Set up coding environment", "priority": 2},
-  {"title": "Complete first lesson", "priority": 1}
-]
-
 OUTPUT FORMAT (JSON array only, no markdown):
-[{"title": "short task in ${targetLang}", "original": "${userText}", "type": "${state.currentTab}", "priority": 1-3}]
+[{"title": "2-4 words in ${targetLang}", "original": "${userText}", "type": "${state.currentTab}", "priority": 1-3}]
 
 Generate tasks now:`;
             
