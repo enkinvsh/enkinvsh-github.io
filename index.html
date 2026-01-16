@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport">
-    <title>Focus App - Cloud Edition</title>
+    <title>Focus App - Secure Proxy Edition</title>
     
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -92,7 +92,6 @@
             transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
         }
         
-        /* Loading Overlay */
         #sync-overlay {
             position: fixed;
             inset: 0;
@@ -119,7 +118,7 @@
         
         <!-- HEADER -->
         <header class="w-full z-20 flex flex-col bg-gradient-to-b from-black/80 via-black/40 to-transparent pb-4 relative pt-4">
-            <div class="w-full h-[56px] shrink-0" id="header-spacer"></div> 
+            <div class="w-full h-[58px] shrink-0" id="header-spacer"></div> 
 
             <div class="w-full flex justify-center items-center mb-4 relative z-30">
                 <h1 class="text-2xl font-extrabold tracking-tight text-white select-none hover:text-brand-green transition-colors cursor-pointer flex items-center gap-2" onclick="haptic('light')" id="focus-title-btn">
@@ -134,9 +133,9 @@
                     <span class="text-[10px] font-bold uppercase tracking-wider text-gray-300 group-hover:text-white" id="lbl-settings">SETTINGS</span>
                 </button>
 
-                <button onclick="toggleApiKeyModal(); haptic('light');" class="flex items-center gap-2 glass-panel px-4 py-2 rounded-full select-none active:scale-95 transition-transform" id="status-container">
-                    <div class="w-2 h-2 rounded-full bg-gray-500" id="status-dot"></div>
-                    <span class="text-[10px] font-bold uppercase tracking-wider text-gray-300" id="agent-status-text">KEY</span>
+                <button class="flex items-center gap-2 glass-panel px-4 py-2 rounded-full select-none active:scale-95 transition-transform" id="status-container">
+                    <div class="w-2 h-2 rounded-full bg-brand-green animate-pulse" id="status-dot"></div>
+                    <span class="text-[10px] font-bold uppercase tracking-wider text-gray-300" id="agent-status-text">AGENT</span>
                 </button>
             </div>
 
@@ -202,17 +201,6 @@
         </div>
     </div>
 
-    <!-- API MODAL -->
-    <div class="fixed inset-0 z-[60] flex items-center justify-center pointer-events-none opacity-0 hidden transition-opacity duration-200" id="api-modal">
-        <div class="absolute inset-0 bg-black/90 backdrop-blur-md pointer-events-auto" onclick="toggleApiKeyModal()"></div>
-        <div class="bg-brand-gray border border-brand-green/30 w-[90%] max-w-sm rounded-3xl p-6 relative pointer-events-auto transform scale-95 transition-transform duration-200">
-            <h2 class="text-xl font-bold text-white mb-2">Gemini API Key</h2>
-            <p class="text-[11px] text-gray-400 mb-4" id="lbl-apikey-desc">Key is stored locally.</p>
-            <input type="password" id="api-input" placeholder="..." class="w-full bg-black/50 border border-white/10 rounded-xl p-4 text-white mb-4 focus:border-brand-green outline-none text-sm font-mono">
-            <button onclick="saveApiKey()" class="w-full bg-brand-green text-brand-black font-bold py-3.5 rounded-xl active:scale-95 transition-transform shadow-lg shadow-brand-green/20" id="btn-connect">Connect AI</button>
-        </div>
-    </div>
-
     <!-- ACTION SHEET -->
     <div class="fixed inset-0 z-50 flex items-end sm:items-center justify-center pointer-events-none opacity-0 transition-opacity duration-300" id="action-modal">
         <div class="absolute inset-0 bg-black/60 backdrop-blur-md pointer-events-auto" id="action-backdrop" onclick="closeModal()"></div>
@@ -241,6 +229,8 @@
         const tg = window.Telegram.WebApp;
         tg.ready(); tg.expand(); tg.enableClosingConfirmation();
 
+        const PROXY_URL = 'https://focus.enkinvsh.workers.dev';
+
         function haptic(type) {
             if (!tg.HapticFeedback) return;
             switch(type) {
@@ -257,18 +247,16 @@
         
         const i18n = {
             en: {
-                task: "TASK", long: "LONG", routine: "ROUTINE", settings: "SETTINGS", key: "KEY",
+                task: "TASK", long: "LONG", routine: "ROUTINE", settings: "SETTINGS", agent: "AGENT",
                 tap: "Tap to speak", modal_settings: "Settings", lang: "Language", theme: "Theme",
-                api_desc: "Key is stored locally.", connect: "Connect AI",
                 done: "Done", prio: "Priority", lower: "Lower", delete: "Delete",
                 quick: "Quick Tasks", main: "MAIN", side: "SIDE",
                 agent_ready: "READY", agent_think: "THINKING",
                 agent_prompt_lang: "English"
             },
             ru: {
-                task: "ЗАДАЧИ", long: "ДОЛГИЕ", routine: "РУТИНА", settings: "НАСТРОЙКИ", key: "КЛЮЧ",
+                task: "ЗАДАЧИ", long: "ДОЛГИЕ", routine: "РУТИНА", settings: "НАСТРОЙКИ", agent: "АГЕНТ",
                 tap: "Нажми, чтобы добавить", modal_settings: "Настройки", lang: "Язык", theme: "Тема",
-                api_desc: "Ключ хранится локально.", connect: "Подключить",
                 done: "Готово", prio: "Приоритет", lower: "Снизить", delete: "Удалить",
                 quick: "Быстрые задачи", main: "ГЛАВНОЕ", side: "ВТОРОЕ",
                 agent_ready: "ГОТОВ", agent_think: "ДУМАЕТ",
@@ -277,14 +265,13 @@
         };
 
         const state = {
-            currentTab: 'Task', tasks: [], currentThemeIndex: 0, apiKey: null, isRecording: false,
+            currentTab: 'Task', tasks: [], currentThemeIndex: 0, isRecording: false,
             language: 'en' 
         };
 
-        // --- NEW CLOUD STORAGE LOGIC ---
         function saveTasks() {
             const data = JSON.stringify(state.tasks);
-            localStorage.setItem('focusTasks', data); // Fallback
+            localStorage.setItem('focusTasks', data);
             if (tg.CloudStorage) {
                 tg.CloudStorage.setItem('focusTasks', data, (err) => {
                     if (err) console.error("Cloud Save Error:", err);
@@ -293,17 +280,14 @@
         }
 
         function loadTasks(callback) {
-            // Priority: CloudStorage -> LocalStorage
             if (tg.CloudStorage) {
                 tg.CloudStorage.getItem('focusTasks', (err, value) => {
                     if (!err && value) {
                         try {
                             state.tasks = JSON.parse(value);
-                            callback();
-                            return;
+                            callback(); return;
                         } catch(e) {}
                     }
-                    // If cloud failed/empty, try local
                     const s = localStorage.getItem('focusTasks');
                     if (s) { try { state.tasks = JSON.parse(s); } catch (e) { state.tasks = []; } }
                     callback();
@@ -316,17 +300,21 @@
         }
 
         async function runAgent(userText) {
-            if (!state.apiKey) { toggleApiKeyModal(); return; }
             setAgentStatus('Thinking');
             haptic('medium');
             const targetLang = i18n[state.language].agent_prompt_lang; 
             const prompt = `You are 'Focus' AI. Context: Tab "${state.currentTab}". User Input: "${userText}". Output JSON: [{"title": "short translated to ${targetLang}", "original": "${userText}", "type": "${state.currentTab}", "priority": 1}]`;
+            
             let success = false;
             for (const model of AVAILABLE_MODELS) {
                 try {
-                    const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${state.apiKey}`, {
-                        method: 'POST', headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                    const resp = await fetch(PROXY_URL, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ 
+                            model: model, 
+                            contents: [{ parts: [{ text: prompt }] }] 
+                        })
                     });
                     if (!resp.ok) continue;
                     const data = await resp.json();
@@ -347,13 +335,11 @@
             document.getElementById('btn-Long').innerText = t.long;
             document.getElementById('btn-Routine').innerText = t.routine;
             document.getElementById('lbl-settings').innerText = t.settings;
-            document.getElementById('agent-status-text').innerText = t.key;
+            document.getElementById('agent-status-text').innerText = t.agent;
             document.getElementById('lbl-tap').innerText = t.tap;
             document.getElementById('lbl-modal-settings').innerText = t.modal_settings;
             document.getElementById('lbl-language').innerText = t.lang;
             document.getElementById('lbl-theme').innerText = t.theme;
-            document.getElementById('lbl-apikey-desc').innerText = t.api_desc;
-            document.getElementById('btn-connect').innerText = t.connect;
             document.getElementById('lbl-done').innerText = t.done;
             document.getElementById('lbl-prio').innerText = t.prio;
             document.getElementById('lbl-lower').innerText = t.lower;
@@ -462,13 +448,6 @@
             else { m.classList.add('opacity-0', 'pointer-events-none'); setTimeout(() => m.classList.add('hidden'), 200); }
         }
 
-        function toggleApiKeyModal() {
-            const m = document.getElementById('api-modal');
-            const isHidden = m.classList.contains('hidden');
-            if (isHidden) { m.classList.remove('hidden'); setTimeout(() => { m.classList.remove('opacity-0', 'pointer-events-none'); }, 10); }
-            else { m.classList.add('opacity-0', 'pointer-events-none'); setTimeout(() => m.classList.add('hidden'), 200); }
-        }
-
         function setTheme(idx) {
             state.currentThemeIndex = idx;
             const color = themes[idx];
@@ -494,26 +473,16 @@
             else { dot.className = "w-2 h-2 rounded-full bg-brand-green animate-pulse"; text.innerText = t.agent_ready; }
         }
 
-        function checkApiKey() { const k = localStorage.getItem('focusApiKey'); if (k) { state.apiKey = k; setAgentStatus('Ready'); } }
-        function saveApiKey() { const v = document.getElementById('api-input').value.trim(); if(v) { localStorage.setItem('focusApiKey', v); state.apiKey = v; toggleApiKeyModal(); checkApiKey(); haptic('success'); } }
-
         document.addEventListener('DOMContentLoaded', () => {
             const savedTheme = localStorage.getItem('focusThemeIndex'); if(savedTheme) setTheme(parseInt(savedTheme));
             const savedLang = localStorage.getItem('focusLang'); if(savedLang) state.language = savedLang;
             
-            // Show Sync Overlay
             document.getElementById('sync-overlay').style.opacity = '1';
-            
-            // Load Tasks from Cloud
             loadTasks(() => {
-                // Hide Sync Overlay
                 const overlay = document.getElementById('sync-overlay');
                 overlay.style.opacity = '0';
                 setTimeout(() => overlay.style.display = 'none', 500);
-                
-                applyLocalization(); 
-                checkApiKey(); 
-                switchTab('Task');
+                applyLocalization(); switchTab('Task');
             });
         });
     </script>
