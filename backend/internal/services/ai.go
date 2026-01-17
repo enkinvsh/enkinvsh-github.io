@@ -70,8 +70,11 @@ type Task struct {
 }
 
 func TranscribeAndParseTasks(audioData []byte, mimeType, taskType, language string) ([]map[string]interface{}, error) {
-	apiKey := os.Getenv("GEMINI_KEY")
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=%s", apiKey)
+	proxyURL := os.Getenv("GEMINI_PROXY_URL")
+	if proxyURL == "" {
+		proxyURL = "https://focus.enkinvsh.workers.dev"
+	}
+	url := fmt.Sprintf("%s?model=gemini-2.5-flash", proxyURL)
 
 	prompt := fmt.Sprintf(`Listen to this audio and extract tasks from what the user said.
 
