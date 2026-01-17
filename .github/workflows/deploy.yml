@@ -89,11 +89,15 @@ jobs:
             echo "Logging into GitHub Container Registry..."
             echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             
+            echo "Stopping old containers..."
+            docker stop focus-api focus-db focus-caddy 2>/dev/null || true
+            docker rm focus-api focus-db focus-caddy 2>/dev/null || true
+            
             echo "Pulling latest image..."
             docker pull ghcr.io/${{ github.repository }}-backend:latest
             
-            echo "Updating containers..."
-            docker compose up -d --remove-orphans
+            echo "Starting containers..."
+            docker compose up -d --remove-orphans --force-recreate
             
             echo "Waiting for services to start..."
             sleep 15
