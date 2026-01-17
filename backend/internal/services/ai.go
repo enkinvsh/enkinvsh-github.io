@@ -93,6 +93,11 @@ Extract tasks now:`, taskType, language, taskType)
 		return nil, err
 	}
 
+	// Log response for debugging
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("Gemini API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
 	var geminiResp GeminiResponse
 	if err := json.Unmarshal(body, &geminiResp); err != nil {
 		return nil, fmt.Errorf("failed to parse Gemini response: %w", err)
