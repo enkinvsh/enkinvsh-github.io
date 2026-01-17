@@ -71,7 +71,7 @@ type Task struct {
 
 func TranscribeAndParseTasks(audioData []byte, mimeType, taskType, language string) ([]map[string]interface{}, error) {
 	apiKey := os.Getenv("GEMINI_KEY")
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=%s", apiKey)
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=%s", apiKey)
 
 	prompt := fmt.Sprintf(`Listen to this audio and extract tasks from what the user said.
 
