@@ -1,210 +1,372 @@
-# GitHub Actions Deployment — Инструкция
+# Focus Backend — Production Deployment Guide
 
-## Шаг 1: Подготовка VPS
+## Architecture Overview
 
-```bash
-# На VPS создай директорию и .env
-mkdir -p /opt/focus
-cd /opt/focus
-
-# Создай .env с секретами
-cat > .env << 'EOF'
-DATABASE_URL=postgres://focus:YOUR_DB_PASSWORD@localhost:5432/focus?sslmode=disable
-BOT_TOKEN=YOUR_TELEGRAM_BOT_TOKEN
-GEMINI_KEY=YOUR_GEMINI_API_KEY
-PORT=8080
-EOF
-
-# Установи Docker если нет
-curl -fsSL https://get.docker.com | sh
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Internet                              │
+└─────────────────────────┬───────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    Caddy (Port 80/443)                       │
+│              Automatic HTTPS via Let's Encrypt               │
+│                     HTTP/3 (QUIC) Support                    │
+└─────────────────────────┬───────────────────────────────────┘
+                          │ reverse_proxy
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   Focus API (Port 8080)                      │
+│                     Go 1.25 + Gin                            │
+└─────────────────────────┬───────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│                 PostgreSQL 16 (Port 5432)                    │
+│                   Internal network only                      │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-## Шаг 2: Создай SSH ключ для деплоя
+## Prerequisites
+
+- VPS with Ubuntu 22.04+ / Debian 12+
+- Domain pointing to VPS IP (A record)
+- Docker & Docker Compose installed
+- Ports 80, 443 open in firewall
+
+---
+
+## Step 1: Prepare VPS
 
 ```bash
-# На своей машине (не на VPS)
+# Install Docker
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+
+# Create project directory
+sudo mkdir -p /opt/focus
+sudo chown $USER:$USER /opt/focus
+cd /opt/focus
+```
+
+## Step 2: Configure DNS
+
+Point your domain to your VPS:
+
+| Type | Name | Value | TTL |
+|------|------|-------|-----|
+| A | api.focus | YOUR_VPS_IP | 300 |
+
+Wait for DNS propagation (5-30 minutes).
+
+## Step 3: Create Environment File
+
+```bash
+cd /opt/focus
+
+cat > .env << 'EOF'
+# Database
+DB_PASSWORD=GENERATE_SECURE_PASSWORD_HERE
+
+# Telegram Bot
+BOT_TOKEN=YOUR_BOT_TOKEN_FROM_BOTFATHER
+
+# Google Gemini
+GEMINI_KEY=YOUR_GEMINI_API_KEY
+
+# Domain (without https://)
+DOMAIN=api.focus.yourdomain.com
+EOF
+
+# Generate secure password
+sed -i "s/GENERATE_SECURE_PASSWORD_HERE/$(openssl rand -base64 32 | tr -d '=/+')/" .env
+
+# Secure the file
+chmod 600 .env
+```
+
+## Step 4: Deploy Stack
+
+### Option A: Using Pre-built Image (Recommended)
+
+```bash
+# Login to GitHub Container Registry
+echo $GITHUB_TOKEN | docker login ghcr.io -u USERNAME --password-stdin
+
+# Create docker-compose.prod.yml
+cat > docker-compose.yml << 'EOF'
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: focus-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: focus
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: focus
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U focus -d focus"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    image: ghcr.io/YOUR_USERNAME/focus-backend:latest
+    container_name: focus-api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://focus:${DB_PASSWORD}@postgres:5432/focus?sslmode=disable
+      BOT_TOKEN: ${BOT_TOKEN}
+      GEMINI_KEY: ${GEMINI_KEY}
+      PORT: 8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: focus-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+    networks:
+      - internal
+
+networks:
+  internal:
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
+EOF
+
+# Create Caddyfile
+cat > Caddyfile << 'EOF'
+{$DOMAIN} {
+    reverse_proxy app:8080
+    encode gzip zstd
+}
+EOF
+
+# Start services
+docker compose up -d
+```
+
+### Option B: Build from Source
+
+```bash
+# Clone repository
+git clone https://github.com/YOUR_USERNAME/focus.git /opt/focus/src
+cd /opt/focus/src/backend
+
+# Copy .env
+cp /opt/focus/.env .env
+
+# Build and start
+docker compose up -d --build
+```
+
+## Step 5: Set Telegram Webhook
+
+After deployment, configure the webhook:
+
+```bash
+# Replace with your actual values
+BOT_TOKEN="your_bot_token"
+DOMAIN="api.focus.yourdomain.com"
+
+curl -X POST "https://api.telegram.org/bot${BOT_TOKEN}/setWebhook" \
+  -H "Content-Type: application/json" \
+  -d "{\"url\": \"https://${DOMAIN}/bot/webhook\"}"
+```
+
+Expected response:
+```json
+{"ok":true,"result":true,"description":"Webhook was set"}
+```
+
+Verify webhook:
+```bash
+curl "https://api.telegram.org/bot${BOT_TOKEN}/getWebhookInfo"
+```
+
+## Step 6: Verify Deployment
+
+```bash
+# Check all containers are running
+docker compose ps
+
+# Check API health
+curl https://api.focus.yourdomain.com/health
+
+# Check logs
+docker compose logs -f
+
+# Check SSL certificate
+curl -vI https://api.focus.yourdomain.com 2>&1 | grep -i "SSL\|certificate"
+```
+
+---
+
+## GitHub Actions: Automated Deployment
+
+### Required Secrets
+
+Add these in **Repository → Settings → Secrets → Actions**:
+
+| Secret | Description |
+|--------|-------------|
+| `VPS_HOST` | VPS IP or domain |
+| `VPS_USER` | SSH username (root or deploy user) |
+| `VPS_SSH_KEY` | Private SSH key (ed25519 recommended) |
+| `VPS_PORT` | SSH port (default: 22) |
+
+### Generate Deploy Key
+
+```bash
+# On your local machine
 ssh-keygen -t ed25519 -C "github-deploy" -f ~/.ssh/focus_deploy -N ""
 
-# Скопируй публичный ключ на VPS
+# Copy public key to VPS
 ssh-copy-id -i ~/.ssh/focus_deploy.pub user@YOUR_VPS_IP
 
-# Покажи приватный ключ (понадобится для GitHub)
+# Copy private key content to GitHub Secret VPS_SSH_KEY
 cat ~/.ssh/focus_deploy
 ```
 
-## Шаг 3: Добавь Secrets в GitHub
+### Workflow
 
-Иди в **Repository → Settings → Secrets and variables → Actions → New repository secret**
-
-| Secret Name | Value |
-|-------------|-------|
-| `VPS_HOST` | IP адрес или домен VPS |
-| `VPS_USER` | Пользователь SSH (root или другой) |
-| `VPS_SSH_KEY` | Содержимое `~/.ssh/focus_deploy` (приватный ключ) |
-| `VPS_PORT` | SSH порт (обычно 22) |
-
-## Шаг 4: Создай workflow файл
-
-Создай файл `.github/workflows/deploy.yml` в репозитории:
-
-```yaml
-name: Deploy
-
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}-backend
-
-jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
-    outputs:
-      image_tag: ${{ steps.meta.outputs.tags }}
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=sha,prefix=
-            type=raw,value=latest
-
-      - name: Build and push
-        uses: docker/build-push-action@v5
-        with:
-          context: ./backend
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Deploy to VPS
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT }}
-          script: |
-            cd /opt/focus
-            
-            # Pull latest image
-            docker pull ghcr.io/${{ github.repository }}-backend:latest
-            
-            # Stop old container
-            docker stop focus-api 2>/dev/null || true
-            docker rm focus-api 2>/dev/null || true
-            
-            # Start new container
-            docker run -d \
-              --name focus-api \
-              --restart unless-stopped \
-              --env-file .env \
-              -p 8080:8080 \
-              ghcr.io/${{ github.repository }}-backend:latest
-            
-            # Cleanup old images
-            docker image prune -f
-```
-
-## Шаг 5: Настрой PostgreSQL на VPS
-
-```bash
-# На VPS
-docker run -d \
-  --name focus-db \
-  --restart unless-stopped \
-  -e POSTGRES_USER=focus \
-  -e POSTGRES_PASSWORD=YOUR_DB_PASSWORD \
-  -e POSTGRES_DB=focus \
-  -v pgdata:/var/lib/postgresql/data \
-  -p 127.0.0.1:5432:5432 \
-  postgres:15-alpine
-
-# Подожди 10 сек и примени миграции
-# (можно вручную или добавить в контейнер)
-```
-
-## Шаг 6: Push и проверь
-
-```bash
-git add .github/workflows/deploy.yml
-git commit -m "Add GitHub Actions deploy workflow"
-git push origin main
-```
-
-Иди в **Actions** таб в GitHub — увидишь запущенный workflow.
+The `.github/workflows/deploy.yml` automatically:
+1. Builds Docker image on push to `main`
+2. Pushes to GitHub Container Registry
+3. SSHs to VPS and pulls latest image
+4. Restarts the container
 
 ---
 
-## После деплоя: Настрой Telegram Webhook
+## Maintenance
+
+### Update Application
 
 ```bash
-curl "https://api.telegram.org/bot<BOT_TOKEN>/setWebhook?url=https://<VPS_IP>:8080/bot/webhook"
+cd /opt/focus
+docker compose pull
+docker compose up -d
+docker image prune -f
 ```
 
-Или если настроишь Cloudflare Tunnel / nginx с SSL:
+### Backup Database
 
 ```bash
-curl "https://api.telegram.org/bot<BOT_TOKEN>/setWebhook?url=https://api.focus.example.com/bot/webhook"
+docker exec focus-db pg_dump -U focus focus > backup_$(date +%Y%m%d).sql
 ```
 
----
+### Restore Database
 
-## Структура на VPS после деплоя
-
+```bash
+cat backup.sql | docker exec -i focus-db psql -U focus focus
 ```
-/opt/focus/
-└── .env          # Секреты (только здесь!)
 
-Docker containers:
-- focus-db        # PostgreSQL
-- focus-api       # Go backend (pulled from ghcr.io)
+### View Logs
+
+```bash
+docker compose logs -f app      # API logs
+docker compose logs -f caddy    # Caddy/SSL logs
+docker compose logs -f postgres # Database logs
+```
+
+### Restart Services
+
+```bash
+docker compose restart          # Restart all
+docker compose restart app      # Restart API only
 ```
 
 ---
 
 ## Troubleshooting
 
-### Проверить логи контейнера
+### SSL Certificate Issues
+
 ```bash
-docker logs focus-api
-docker logs focus-db
+# Check Caddy logs
+docker compose logs caddy
+
+# Force certificate renewal
+docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
 ```
 
-### Проверить что контейнеры запущены
+### Database Connection Issues
+
 ```bash
-docker ps
+# Check if PostgreSQL is healthy
+docker compose exec postgres pg_isready -U focus
+
+# Connect to database
+docker compose exec postgres psql -U focus focus
 ```
 
-### Перезапустить вручную
+### Webhook Not Working
+
 ```bash
-docker restart focus-api
+# Check webhook status
+curl "https://api.telegram.org/bot${BOT_TOKEN}/getWebhookInfo"
+
+# Check API logs for incoming requests
+docker compose logs -f app | grep webhook
 ```
 
-### Проверить health endpoint
+### Container Won't Start
+
 ```bash
-curl http://localhost:8080/health
+# Check detailed logs
+docker compose logs --tail=100 app
+
+# Check container status
+docker inspect focus-api | jq '.[0].State'
+```
+
+---
+
+## Security Checklist
+
+- [ ] Strong `DB_PASSWORD` (32+ random characters)
+- [ ] `.env` file has `chmod 600`
+- [ ] SSH key-only authentication enabled
+- [ ] Firewall allows only 22, 80, 443
+- [ ] Regular backups configured
+- [ ] Monitoring/alerting set up
+
+---
+
+## File Structure on VPS
+
+```
+/opt/focus/
+├── .env              # Secrets (chmod 600)
+├── docker-compose.yml
+├── Caddyfile
+└── backups/          # Database backups
 ```

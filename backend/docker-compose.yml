@@ -1,38 +1,84 @@
-version: '3.8'
-
 services:
+  # =============================================================
+  # PostgreSQL Database
+  # =============================================================
   postgres:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: focus-db
+    restart: unless-stopped
     environment:
       POSTGRES_USER: focus
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       POSTGRES_DB: focus
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./internal/db/migrations:/docker-entrypoint-initdb.d:ro
-    ports:
-      - "5432:5432"
+    networks:
+      - internal
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U focus"]
-      interval: 5s
+      test: ["CMD-SHELL", "pg_isready -U focus -d focus"]
+      interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
 
+  # =============================================================
+  # Go Backend API
+  # =============================================================
   app:
     build: .
     container_name: focus-api
+    restart: unless-stopped
     environment:
-      DATABASE_URL: postgres://focus:${DB_PASSWORD:-secret}@postgres:5432/focus?sslmode=disable
-      BOT_TOKEN: ${BOT_TOKEN}
-      GEMINI_KEY: ${GEMINI_KEY}
+      DATABASE_URL: postgres://focus:${DB_PASSWORD}@postgres:5432/focus?sslmode=disable
+      BOT_TOKEN: ${BOT_TOKEN:?BOT_TOKEN is required}
+      GEMINI_KEY: ${GEMINI_KEY:?GEMINI_KEY is required}
       PORT: 8080
     depends_on:
       postgres:
         condition: service_healthy
-    ports:
-      - "8080:8080"
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+  # =============================================================
+  # Caddy - Automatic HTTPS Reverse Proxy
+  # =============================================================
+  caddy:
+    image: caddy:2-alpine
+    container_name: focus-caddy
     restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"  # HTTP/3 (QUIC)
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  internal:
+    driver: bridge
 
 volumes:
   pgdata:
+  caddy_data:
+  caddy_config:

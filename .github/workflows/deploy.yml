@@ -3,6 +3,9 @@ name: Deploy
 on:
   push:
     branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
 env:
@@ -18,9 +21,13 @@ jobs:
 
     outputs:
       image_tag: ${{ steps.meta.outputs.tags }}
+      image_digest: ${{ steps.build.outputs.digest }}
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to Container Registry
         uses: docker/login-action@v3
@@ -39,41 +46,70 @@ jobs:
             type=raw,value=latest
 
       - name: Build and push
-        uses: docker/build-push-action@v5
+        id: build
+        uses: docker/build-push-action@v6
         with:
           context: ./backend
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
 
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
+    environment: production
 
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            backend/Caddyfile
+            backend/docker-compose.yml
+
       - name: Deploy to VPS
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
           script: |
+            set -e
             cd /opt/focus
             
-            # Pull latest image
+            echo "Pulling latest image..."
             docker pull ghcr.io/${{ github.repository }}-backend:latest
             
-            # Stop old container
-            docker stop focus-api 2>/dev/null || true
-            docker rm focus-api 2>/dev/null || true
+            echo "Updating containers..."
+            docker compose pull
+            docker compose up -d --remove-orphans
             
-            # Start new container
-            docker run -d \
-              --name focus-api \
-              --restart unless-stopped \
-              --env-file .env \
-              -p 8080:8080 \
-              ghcr.io/${{ github.repository }}-backend:latest
+            echo "Waiting for health check..."
+            sleep 10
             
-            # Cleanup old images
+            if ! docker compose exec -T app wget -q --spider http://localhost:8080/health; then
+              echo "Health check failed!"
+              docker compose logs --tail=50 app
+              exit 1
+            fi
+            
+            echo "Cleaning up..."
             docker image prune -f
+            
+            echo "Deployment successful!"
+
+      - name: Verify deployment
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          script: |
+            echo "Container status:"
+            docker compose -f /opt/focus/docker-compose.yml ps
+            
+            echo "API health:"
+            curl -sf https://${{ secrets.DOMAIN }}/health || echo "External health check pending SSL..."

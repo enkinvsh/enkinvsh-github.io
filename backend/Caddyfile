@@ -1,0 +1,41 @@
+# Focus API - Caddy Configuration
+# Automatic HTTPS with Let's Encrypt
+
+{$DOMAIN:localhost} {
+    # Reverse proxy to Go backend
+    reverse_proxy app:8080 {
+        # Health checks
+        health_uri /health
+        health_interval 30s
+        health_timeout 5s
+        
+        # Headers
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+    
+    # Security headers
+    header {
+        # Prevent clickjacking
+        X-Frame-Options "DENY"
+        # Prevent MIME type sniffing
+        X-Content-Type-Options "nosniff"
+        # XSS protection
+        X-XSS-Protection "1; mode=block"
+        # Referrer policy
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # Remove server header
+        -Server
+    }
+    
+    # Logging
+    log {
+        output stdout
+        format json
+        level INFO
+    }
+    
+    # Compression
+    encode gzip zstd
+}
