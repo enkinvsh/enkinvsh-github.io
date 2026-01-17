@@ -139,6 +139,50 @@
         }
         
         .paused { animation-play-state: paused !important; }
+        
+        /* Voice Recording Progress Ring */
+        .voice-btn-container {
+            position: relative;
+            width: 80px;
+            height: 80px;
+        }
+        .progress-ring {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            -webkit-transform: rotate(270deg);
+            transform: rotate(270deg);
+            pointer-events: none;
+        }
+        .progress-ring__circle {
+            fill: transparent;
+            stroke: #00dc82;
+            stroke-width: 3;
+            stroke-linecap: round;
+            stroke-dasharray: 226, 226;
+            stroke-dashoffset: 226;
+            -webkit-transition: stroke-dashoffset 0.1s linear;
+            transition: stroke-dashoffset 0.1s linear;
+        }
+        .progress-ring__circle.animating {
+            -webkit-animation: progress-countdown 8s linear forwards;
+            animation: progress-countdown 8s linear forwards;
+        }
+        @-webkit-keyframes progress-countdown {
+            from { stroke-dashoffset: 226; }
+            to { stroke-dashoffset: 0; }
+        }
+        @keyframes progress-countdown {
+            from { stroke-dashoffset: 226; }
+            to { stroke-dashoffset: 0; }
+        }
+        .progress-ring__bg {
+            fill: transparent;
+            stroke: rgba(255, 255, 255, 0.1);
+            stroke-width: 3;
+        }
     </style>
 </head>
 <body class="h-screen w-full overflow-hidden relative flex flex-col items-center" id="app-body" oncontextmenu="return false;">
@@ -241,14 +285,17 @@
 
         <!-- VOICE BUTTON -->
         <div class="absolute bottom-0 left-0 w-full h-36 bg-gradient-to-t from-black via-black/80 to-transparent pointer-events-none flex justify-center items-end pb-10 z-30">
-            <div class="pointer-events-auto relative group">
-                <div class="absolute inset-0 rounded-full border border-brand-green/30 scale-100 opacity-0 transition-transform duration-1000" id="pulse-ring-1"></div>
-                <button class="w-16 h-16 rounded-full bg-brand-green relative flex items-center justify-center shadow-[0_0_25px_rgba(0,220,130,0.4)] transition-all duration-300 transform active:scale-90 overflow-hidden border-2 border-white/10" id="voice-btn">
+            <div class="pointer-events-auto voice-btn-container">
+                <svg class="progress-ring" viewBox="0 0 80 80">
+                    <circle class="progress-ring__bg" cx="40" cy="40" r="36"/>
+                    <circle class="progress-ring__circle" id="progress-circle" cx="40" cy="40" r="36"/>
+                </svg>
+                <button class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 rounded-full bg-brand-green flex items-center justify-center shadow-[0_0_25px_rgba(0,220,130,0.4)] transition-all duration-300 transform active:scale-90 overflow-hidden border-2 border-white/10" id="voice-btn">
                     <span class="material-symbols-outlined text-brand-black text-3xl z-10" id="mic-icon">mic</span>
                     <div class="absolute inset-0 flex items-center justify-center gap-1 hidden" id="waveform">
-                        <div class="w-1 bg-brand-black/80 animate-[breathing_0.5s_ease-in-out_infinite] h-4"></div>
-                        <div class="w-1 bg-brand-black/80 animate-[breathing_0.5s_ease-in-out_infinite_0.1s] h-7"></div>
-                        <div class="w-1 bg-brand-black/80 animate-[breathing_0.5s_ease-in-out_infinite_0.2s] h-3"></div>
+                        <div class="w-1 bg-brand-black/80 animate-pulse h-4"></div>
+                        <div class="w-1 bg-brand-black/80 animate-pulse h-7" style="animation-delay:0.1s"></div>
+                        <div class="w-1 bg-brand-black/80 animate-pulse h-3" style="animation-delay:0.2s"></div>
                     </div>
                 </button>
             </div>
@@ -854,14 +901,30 @@ Generate tasks now:`;
         // AUDIO RECORDING (MediaRecorder for iOS compatibility)
         let mediaRecorder = null;
         let audioChunks = [];
+        let audioContext = null;
+        let analyser = null;
+        let audioStream = null;
+        let silenceCheckInterval = null;
+        let recordingTimeout = null;
+        let silenceStart = null;
+        const SILENCE_THRESHOLD = 0.01;
+        const SILENCE_DURATION = 2000; // 2 seconds of silence to auto-stop
+        const MAX_RECORDING_TIME = 8000; // 8 seconds max
         
         async function initAudioRecording() {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                // Setup Web Audio API for silence detection
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 512;
+                const source = audioContext.createMediaStreamSource(audioStream);
+                source.connect(analyser);
                 
                 // Prefer webm for smaller size, fallback to mp4 for iOS
                 const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
-                mediaRecorder = new MediaRecorder(stream, { mimeType });
+                mediaRecorder = new MediaRecorder(audioStream, { mimeType });
                 
                 mediaRecorder.ondataavailable = (e) => {
                     if (e.data.size > 0) audioChunks.push(e.data);
@@ -880,24 +943,103 @@ Generate tasks now:`;
             }
         }
         
+        function checkSilence() {
+            if (!analyser || !state.isRecording) return;
+            
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            analyser.getByteTimeDomainData(dataArray);
+            
+            // Calculate RMS (Root Mean Square) for volume level
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+                const sample = (dataArray[i] - 128) / 128;
+                sum += sample * sample;
+            }
+            const rms = Math.sqrt(sum / dataArray.length);
+            
+            if (rms < SILENCE_THRESHOLD) {
+                if (!silenceStart) silenceStart = Date.now();
+                else if (Date.now() - silenceStart >= SILENCE_DURATION) {
+                    stopRecording();
+                }
+            } else {
+                silenceStart = null;
+            }
+        }
+        
+        function startProgressRing() {
+            const circle = document.getElementById('progress-circle');
+            circle.classList.remove('animating');
+            void circle.offsetWidth; // Force reflow
+            circle.classList.add('animating');
+        }
+        
+        function stopProgressRing() {
+            const circle = document.getElementById('progress-circle');
+            const computedStyle = getComputedStyle(circle);
+            const currentOffset = computedStyle.strokeDashoffset;
+            circle.classList.remove('animating');
+            circle.style.strokeDashoffset = currentOffset;
+            // Reset after short delay
+            setTimeout(() => {
+                circle.style.strokeDashoffset = '226';
+            }, 300);
+        }
+        
         function startRecording() {
             if (!mediaRecorder || mediaRecorder.state === 'recording') return;
             audioChunks = [];
+            silenceStart = null;
+            
+            // Resume AudioContext if suspended (iOS requirement)
+            if (audioContext && audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+            
             mediaRecorder.start();
             state.isRecording = true;
             haptic('medium');
+            
+            // Visual feedback
             document.getElementById('voice-btn').classList.replace('bg-brand-green','bg-brand-red');
             document.getElementById('mic-icon').classList.add('hidden');
             document.getElementById('waveform').classList.remove('hidden');
+            
+            // Start progress ring animation
+            startProgressRing();
+            
+            // Start silence detection
+            silenceCheckInterval = setInterval(checkSilence, 100);
+            
+            // Max recording timeout
+            recordingTimeout = setTimeout(() => {
+                if (state.isRecording) stopRecording();
+            }, MAX_RECORDING_TIME);
         }
         
         function stopRecording() {
             if (!mediaRecorder || mediaRecorder.state !== 'recording') return;
+            
+            // Clear timers
+            if (silenceCheckInterval) {
+                clearInterval(silenceCheckInterval);
+                silenceCheckInterval = null;
+            }
+            if (recordingTimeout) {
+                clearTimeout(recordingTimeout);
+                recordingTimeout = null;
+            }
+            
             mediaRecorder.stop();
             state.isRecording = false;
+            
+            // Visual feedback
             document.getElementById('voice-btn').classList.replace('bg-brand-red','bg-brand-green');
             document.getElementById('mic-icon').classList.remove('hidden');
             document.getElementById('waveform').classList.add('hidden');
+            
+            // Stop progress ring
+            stopProgressRing();
         }
         
         async function sendAudioToBackend(audioBlob) {
