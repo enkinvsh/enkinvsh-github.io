@@ -1058,12 +1058,12 @@ Generate tasks now:`;
 Task type: "${taskType}"
 Language for output: ${language}
 
-Create tasks with these rules:
-- Title: 2-4 words, action verb, no articles
-- Type: "${taskType}"
-- Priority: 1 (urgent), 2 (important), or 3 (quick)
+Return a JSON array where each task has exactly these fields:
+- "title": string (2-4 words, action verb, no articles)
+- "type": "${taskType}"
+- "priority": number (1=urgent, 2=important, 3=quick)
 
-Return a JSON array of tasks only.`;
+Example: [{"title":"Buy groceries","type":"Task","priority":2}]`;
 
                 const geminiRequest = {
                     contents: [{
@@ -1098,13 +1098,18 @@ Return a JSON array of tasks only.`;
                 const tasksJson = data.candidates[0].content.parts[0].text;
                 const newTasks = JSON.parse(tasksJson);
                 
+                console.log('Gemini returned tasks:', newTasks);
+                
                 newTasks.forEach(t => {
+                    const priority = typeof t.priority === 'number' ? t.priority : 
+                                     t.priority === 'high' || t.priority === 'urgent' ? 1 :
+                                     t.priority === 'low' || t.priority === 'quick' ? 3 : 2;
                     state.tasks.push({
                         id: Date.now() + Math.random(),
-                        title: t.title,
+                        title: t.title || t.name || t.task || 'New task',
                         original: '[voice]',
                         type: t.type || taskType,
-                        priority: t.priority || 2,
+                        priority: priority,
                         completed: false
                     });
                 });
