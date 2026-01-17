@@ -1,7 +1,15 @@
 # Focus API - Caddy Configuration
-# Automatic HTTPS with Let's Encrypt
+# Using Cloudflare Origin Certificate (not Let's Encrypt)
 
-{$DOMAIN:localhost} {
+{
+    # Disable automatic HTTPS - we use Cloudflare Origin Cert
+    auto_https off
+}
+
+:443 {
+    # Use Cloudflare Origin Certificate
+    tls /etc/caddy/certs/origin.pem /etc/caddy/certs/origin-key.pem
+
     # Reverse proxy to Go backend
     reverse_proxy app:8080 {
         # Health checks
@@ -38,4 +46,9 @@
     
     # Compression
     encode gzip zstd
+}
+
+# HTTP redirect to HTTPS
+:80 {
+    redir https://{host}{uri} permanent
 }

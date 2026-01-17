@@ -75,6 +75,23 @@ jobs:
           target: "/opt/focus"
           strip_components: 1
 
+      - name: Write Origin Certificate to VPS
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          ORIGIN_CERT: ${{ secrets.CF_ORIGIN_CERT }}
+          ORIGIN_KEY: ${{ secrets.CF_ORIGIN_KEY }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          envs: ORIGIN_CERT,ORIGIN_KEY
+          script: |
+            echo "$ORIGIN_CERT" > /opt/focus/origin.pem
+            echo "$ORIGIN_KEY" > /opt/focus/origin-key.pem
+            chmod 644 /opt/focus/origin.pem
+            chmod 600 /opt/focus/origin-key.pem
+
       - name: Deploy to VPS
         uses: appleboy/ssh-action@v1.2.0
         with:
