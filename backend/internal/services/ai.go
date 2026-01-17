@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 )
 
 type GeminiRequest struct {
@@ -74,7 +75,7 @@ func TranscribeAndParseTasks(audioData []byte, mimeType, taskType, language stri
 	if proxyURL == "" {
 		proxyURL = "https://focus.enkinvsh.workers.dev"
 	}
-	url := fmt.Sprintf("%s?model=gemini-2.5-flash", proxyURL)
+	url := fmt.Sprintf("%s?model=gemini-2.0-flash", proxyURL)
 
 	prompt := fmt.Sprintf(`Listen to this audio and extract tasks from what the user said.
 
@@ -117,7 +118,9 @@ Return a JSON array of tasks only.`, taskType, language, taskType)
 
 	log.Printf("Gemini request size: %d bytes, mimeType: %s", len(audioData), mimeType)
 
-	resp, err := http.Post(url, "application/json", bytes.NewReader(jsonBody))
+	// Use HTTP client with 30s timeout
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Post(url, "application/json", bytes.NewReader(jsonBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to call Gemini API: %w", err)
 	}
