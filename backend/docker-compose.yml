@@ -12,7 +12,6 @@ services:
       POSTGRES_DB: focus
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./internal/db/migrations:/docker-entrypoint-initdb.d:ro
     networks:
       - internal
     healthcheck:
@@ -26,7 +25,7 @@ services:
   # Go Backend API
   # =============================================================
   app:
-    build: .
+    image: ghcr.io/enkinvsh/focus-backend:latest
     container_name: focus-api
     restart: unless-stopped
     environment:
