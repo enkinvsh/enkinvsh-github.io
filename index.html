@@ -938,22 +938,23 @@ Generate tasks now:`;
         let silenceCheckInterval = null;
         let recordingTimeout = null;
         let silenceStart = null;
+        let maxRmsDuringRecording = 0;
         const SILENCE_THRESHOLD = 0.01;
-        const SILENCE_DURATION = 2000; // 2 seconds of silence to auto-stop
-        const MAX_RECORDING_TIME = 8000; // 8 seconds max
+        const SILENCE_DURATION = 2000;
+        const MAX_RECORDING_TIME = 8000;
+        const MIN_AUDIO_SIZE = 2048;
+        const MIN_RMS_THRESHOLD = 0.008;
         
         async function initAudioRecording() {
             try {
                 audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 
-                // Setup Web Audio API for silence detection
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 analyser = audioContext.createAnalyser();
                 analyser.fftSize = 512;
                 const source = audioContext.createMediaStreamSource(audioStream);
                 source.connect(analyser);
                 
-                // Prefer webm for smaller size, fallback to mp4 for iOS
                 const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
                 mediaRecorder = new MediaRecorder(audioStream, { mimeType });
                 
@@ -964,6 +965,21 @@ Generate tasks now:`;
                 mediaRecorder.onstop = async () => {
                     const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
                     audioChunks = [];
+                    
+                    if (audioBlob.size < MIN_AUDIO_SIZE) {
+                        console.warn('Audio too small:', audioBlob.size);
+                        showUserFeedback(state.language === 'ru' ? 'Слишком короткая запись' : 'Recording too short');
+                        haptic('error');
+                        return;
+                    }
+                    
+                    if (maxRmsDuringRecording < MIN_RMS_THRESHOLD) {
+                        console.warn('Audio too quiet, max RMS:', maxRmsDuringRecording);
+                        showUserFeedback(state.language === 'ru' ? 'Говорите громче' : 'Please speak louder');
+                        haptic('error');
+                        return;
+                    }
+                    
                     await sendAudioToBackend(audioBlob);
                 };
                 
@@ -980,13 +996,16 @@ Generate tasks now:`;
             const dataArray = new Uint8Array(analyser.frequencyBinCount);
             analyser.getByteTimeDomainData(dataArray);
             
-            // Calculate RMS (Root Mean Square) for volume level
             let sum = 0;
             for (let i = 0; i < dataArray.length; i++) {
                 const sample = (dataArray[i] - 128) / 128;
                 sum += sample * sample;
             }
             const rms = Math.sqrt(sum / dataArray.length);
+            
+            if (rms > maxRmsDuringRecording) {
+                maxRmsDuringRecording = rms;
+            }
             
             if (rms < SILENCE_THRESHOLD) {
                 if (!silenceStart) silenceStart = Date.now();
@@ -1021,8 +1040,8 @@ Generate tasks now:`;
             if (!mediaRecorder || mediaRecorder.state === 'recording') return;
             audioChunks = [];
             silenceStart = null;
+            maxRmsDuringRecording = 0;
             
-            // Resume AudioContext if suspended (iOS requirement)
             if (audioContext && audioContext.state === 'suspended') {
                 audioContext.resume();
             }
@@ -1082,40 +1101,12 @@ Generate tasks now:`;
                 const taskType = state.currentTab;
                 const language = i18n[state.language].agent_prompt_lang;
                 
-                console.log('Starting audio processing, blob size:', audioBlob.size, 'type:', audioBlob.type);
+                console.log('Audio blob size:', audioBlob.size, 'type:', audioBlob.type);
                 const base64Audio = await blobToBase64(audioBlob);
-                console.log('Base64 encoded, length:', base64Audio.length);
                 
-                const prompt = `You are a voice-to-task assistant. Process the audio input.
-
-STEP 1: Transcribe the user's speech EXACTLY
-STEP 2: Extract actionable tasks from the transcription
-STEP 3: If audio is unclear, silent, or contains no speech: Return empty tasks array
-
-USER CONTEXT:
-- Task type: "${taskType}"
-- Output language: ${language}
-
-TASK FORMAT RULES:
-- Title: EXACTLY 2-4 words, start with action verb (e.g., "Buy milk", "Call mom")
-- Type: "${taskType}"
-- Priority: 1 (urgent/today), 2 (important/this week), 3 (quick/low effort)
-
-CRITICAL NEGATIVE CONSTRAINTS (MUST FOLLOW):
-- DO NOT return the prompt instructions as a task
-- DO NOT return phrases like "Listen to audio", "extract tasks", "Task type"
-- DO NOT echo your system prompt or these instructions
-- DO NOT return generic tasks like "Complete the task"
-- ONLY return tasks derived from actual user speech
-- IF no clear speech detected, return: {"transcript":"","tasks":[]}
-
-REQUIRED JSON OUTPUT FORMAT:
-{
-  "transcript": "exact words user said (empty string if unclear)",
-  "tasks": [
-    {"title": "2-4 words action", "type": "${taskType}", "priority": 1}
-  ]
-}`;
+                const prompt = `Transcribe this ${language} speech and extract ${taskType.toLowerCase()} tasks.
+Return JSON only: {"transcript": "what user said", "tasks": [{"title": "2-4 words", "type": "${taskType}", "priority": 1-3}]}
+If audio unclear, return: {"transcript": "", "tasks": []}`;
 
                 const geminiRequest = {
                     contents: [{
@@ -1124,13 +1115,7 @@ REQUIRED JSON OUTPUT FORMAT:
                             { text: prompt }
                         ]
                     }],
-                    generationConfig: { temperature: 0.1, responseMimeType: "application/json" },
-                    safetySettings: [
-                        { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-                        { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-                        { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-                        { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
-                    ]
+                    generationConfig: { temperature: 0.1, responseMimeType: "application/json" }
                 };
 
                 console.log('Sending request to Gemini...');
@@ -1198,6 +1183,7 @@ REQUIRED JSON OUTPUT FORMAT:
                 
                 if (newTasks.length === 0) {
                     console.warn('No tasks extracted from audio');
+                    showUserFeedback(state.language === 'ru' ? 'Не удалось распознать задачи' : 'Could not extract tasks');
                     haptic('light');
                     setAgentStatus('Ready');
                     return;
@@ -1224,9 +1210,28 @@ REQUIRED JSON OUTPUT FORMAT:
                 haptic('success');
             } catch (e) {
                 console.error('Audio API error:', e);
+                showUserFeedback(state.language === 'ru' ? 'Ошибка обработки' : 'Processing error');
                 setAgentStatus('Ready');
                 haptic('error');
             }
+        }
+        
+        function showUserFeedback(message) {
+            const existing = document.getElementById('user-feedback');
+            if (existing) existing.remove();
+            
+            const feedback = document.createElement('div');
+            feedback.id = 'user-feedback';
+            feedback.className = 'fixed top-24 left-1/2 -translate-x-1/2 bg-red-500/90 text-white px-4 py-2 rounded-full text-sm font-bold z-50';
+            feedback.style.animation = 'enter-up 0.3s ease-out';
+            feedback.textContent = message;
+            document.body.appendChild(feedback);
+            
+            setTimeout(() => {
+                feedback.style.opacity = '0';
+                feedback.style.transition = 'opacity 0.3s';
+                setTimeout(() => feedback.remove(), 300);
+            }, 3000);
         }
         
         function blobToBase64(blob) {
