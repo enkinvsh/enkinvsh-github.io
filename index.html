@@ -1082,7 +1082,9 @@ Generate tasks now:`;
                 const taskType = state.currentTab;
                 const language = i18n[state.language].agent_prompt_lang;
                 
+                console.log('Starting audio processing, blob size:', audioBlob.size, 'type:', audioBlob.type);
                 const base64Audio = await blobToBase64(audioBlob);
+                console.log('Base64 encoded, length:', base64Audio.length);
                 
                 const prompt = `You are a voice-to-task assistant. Process the audio input.
 
@@ -1131,18 +1133,21 @@ REQUIRED JSON OUTPUT FORMAT:
                     ]
                 };
 
+                console.log('Sending request to Gemini...');
                 const resp = await fetch(WORKER_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(geminiRequest)
                 });
                 
-                if (!resp.ok) throw new Error('Gemini API error');
+                console.log('Response status:', resp.status);
+                if (!resp.ok) throw new Error('Gemini API error: ' + resp.status);
                 
                 const data = await resp.json();
+                console.log('Raw Gemini response:', data);
                 
                 if (!data.candidates || !data.candidates[0]?.content?.parts?.[0]?.text) {
-                    throw new Error('Invalid Gemini response');
+                    throw new Error('Invalid Gemini response structure');
                 }
                 
                 const tasksJson = data.candidates[0].content.parts[0].text;
@@ -1187,6 +1192,13 @@ REQUIRED JSON OUTPUT FORMAT:
                 if (newTasks.length === 0 && rawTasks.length > 0) {
                     console.warn('All tasks filtered out as invalid');
                     haptic('error');
+                    setAgentStatus('Ready');
+                    return;
+                }
+                
+                if (newTasks.length === 0) {
+                    console.warn('No tasks extracted from audio');
+                    haptic('light');
                     setAgentStatus('Ready');
                     return;
                 }
