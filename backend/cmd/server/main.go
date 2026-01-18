@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -14,6 +15,36 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
+
+type rateLimiter struct {
+	mu       sync.Mutex
+	requests map[string][]time.Time
+}
+
+var limiter = &rateLimiter{requests: make(map[string][]time.Time)}
+
+func (rl *rateLimiter) allow(ip string, limit int, window time.Duration) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now()
+	cutoff := now.Add(-window)
+
+	var valid []time.Time
+	for _, t := range rl.requests[ip] {
+		if t.After(cutoff) {
+			valid = append(valid, t)
+		}
+	}
+
+	if len(valid) >= limit {
+		rl.requests[ip] = valid
+		return false
+	}
+
+	rl.requests[ip] = append(valid, now)
+	return true
+}
 
 func main() {
 	godotenv.Load()
@@ -25,6 +56,15 @@ func main() {
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
+
+	r.Use(func(c *gin.Context) {
+		ip := c.ClientIP()
+		if !limiter.allow(ip, 100, time.Minute) {
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "rate limit exceeded"})
+			return
+		}
+		c.Next()
+	})
 
 	r.Use(func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")

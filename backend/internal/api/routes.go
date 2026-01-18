@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"os"
 
 	"github.com/enkinvsh/focus-backend/internal/bot"
 	"github.com/gin-gonic/gin"
@@ -12,8 +13,13 @@ func SetupRoutes(r *gin.Engine) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-	// Telegram Bot Webhook (no auth required - Telegram sends updates here)
 	r.POST("/bot/webhook", func(c *gin.Context) {
+		secret := os.Getenv("WEBHOOK_SECRET")
+		if secret != "" && c.Query("token") != secret {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+			return
+		}
+
 		var update bot.Update
 		if err := c.ShouldBindJSON(&update); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

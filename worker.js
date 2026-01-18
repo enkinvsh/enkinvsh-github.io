@@ -20,6 +20,19 @@ export default {
       if (request.method !== 'POST') {
         return new Response('Method not allowed', { status: 405 });
       }
+
+      const clientIP = request.headers.get('CF-Connecting-IP') || 'unknown';
+      const rateLimitKey = `ratelimit:${clientIP}`;
+      const currentCount = parseInt(await env.RATE_LIMIT?.get(rateLimitKey) || '0');
+      
+      if (currentCount >= 30) {
+        return new Response(JSON.stringify({ error: 'Rate limit exceeded. Try again in a minute.' }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      
+      await env.RATE_LIMIT?.put(rateLimitKey, String(currentCount + 1), { expirationTtl: 60 });
   
       const url = new URL(request.url);
       const model = url.searchParams.get('model') || 'gemini-2.5-flash';
