@@ -56,6 +56,7 @@ func main() {
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
+	r.SetTrustedProxies([]string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"})
 
 	r.Use(func(c *gin.Context) {
 		ip := c.ClientIP()
